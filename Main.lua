@@ -6,7 +6,8 @@ local HIGHLIGHT_COLOR = Color3.fromRGB(255, 220, 0)
 local TP_OFFSET = Vector3.new(0, 3, 0)
 local TP_DELAY = 0.05
 local AUTO_GRAB = true
-local GUN_NAME = "GunDrop" -- если в MM2 объект называется иначе, поменяй здесь
+local SCAN_INTERVAL = 0.75
+local GUN_NAME = "GunDrop"
 
 if PG:FindFirstChild("GunDropTP") then PG.GunDropTP:Destroy() end
 
@@ -51,15 +52,12 @@ Instance.new("UICorner", tpBtn).CornerRadius = UDim.new(0, 6)
 
 local savedCFrame = nil
 local highlight = nil
-local billboard = nil
 local currentGun = nil
 
 local function attachHighlight(part)
-    if currentGun == part and highlight and highlight.Parent then
-        return -- уже подсвечено
-    end
-
-    clearHighlight()
+    if highlight and highlight.Parent == part then return end
+    if highlight then highlight:Destroy() end
+    if part:FindFirstChild("GunDropHL") then part.GunDropHL:Destroy() end
 
     local hl = Instance.new("Highlight")
     hl.Name = "GunDropHL"
@@ -90,8 +88,6 @@ local function attachHighlight(part)
     label.Parent = bb
 
     highlight = hl
-    billboard = bb
-    currentGun = part
 end
 
 local function clearHighlight()
@@ -99,45 +95,38 @@ local function clearHighlight()
         highlight:Destroy()
         highlight = nil
     end
-    if billboard then
-        billboard:Destroy()
-        billboard = nil
-    end
-    currentGun = nil
 end
 
-local function onGunAdded(obj)
-    if obj:IsA("BasePart") and obj.Name == GUN_NAME then
-        attachHighlight(obj)
-    end
-end
-
-local function onGunRemoved(obj)
-    if obj == currentGun then
-        clearHighlight()
-    end
-end
-
--- Первичный поиск (один раз при загрузке)
-local existing = workspace:FindFirstChild(GUN_NAME, true)
-if existing and existing:IsA("BasePart") then
-    attachHighlight(existing)
-end
-
--- Слушаем только изменения, не циклично
-workspace.DescendantAdded:Connect(onGunAdded)
-workspace.DescendantRemoving:Connect(onGunRemoved)
-
-tpBtn.MouseButton1Click:Connect(function()
-    local gun = currentGun
-    if not gun or not gun.Parent then
-        gun = workspace:FindFirstChild(GUN_NAME, true)
-        if gun and gun:IsA("BasePart") then
-            attachHighlight(gun)
+local function findDroppedGun()
+    local found = workspace:FindFirstChild(GUN_NAME, true)
+    if found then
+        if found:IsA("BasePart") then
+            return found
+        elseif found:IsA("Tool") and found:FindFirstChild("Handle") then
+            return found.Handle
         end
     end
+    return nil
+end
 
-    if not gun or not gun.Parent then
+local function refreshHighlight()
+    local gun = findDroppedGun()
+    if gun then
+        if gun ~= currentGun then
+            currentGun = gun
+            attachHighlight(gun)
+        end
+    else
+        if currentGun then
+            currentGun = nil
+            clearHighlight()
+        end
+    end
+end
+
+tpBtn.MouseButton1Click:Connect(function()
+    local gun = findDroppedGun()
+    if not gun then
         tpBtn.Text = "Ты че еблан?"
         tpBtn.BackgroundColor3 = Color3.fromRGB(140, 45, 45)
         task.delay(2, function()
@@ -174,4 +163,25 @@ tpBtn.MouseButton1Click:Connect(function()
     end)
 end)
 
-print("[GunDropTP] loaded — optimized")
+workspace.DescendantAdded:Connect(function(obj)
+    if obj.Name == GUN_NAME then
+        task.wait(0.05)
+        refreshHighlight()
+    end
+end)
+
+workspace.DescendantRemoving:Connect(function(obj)
+    if obj.Name == GUN_NAME then
+        task.wait(0.05)
+        refreshHighlight()
+    end
+end)
+
+task.spawn(function()
+    while gui.Parent do
+        refreshHighlight()
+        task.wait(SCAN_INTERVAL)
+    end
+end)
+
+print("[GunDropTP] loaded")
